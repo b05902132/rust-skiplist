@@ -919,8 +919,9 @@ mod tests {
         use rand::Rng;
         let mut rng = rand::thread_rng();
         let mut sl: SkipList<usize> = SkipList::new();
+        let test_size = if_miri!(100, 1000);
         let mut vec: Vec<usize> = Vec::new();
-        for i in 0..100 {
+        for i in 0..test_size {
             let idx = rng.sample(Uniform::new_inclusive(0, i));
             sl.insert(i, idx);
             vec.insert(idx, i);
@@ -944,17 +945,15 @@ mod tests {
     fn remove_rand() {
         use rand::distributions::Uniform;
         use rand::Rng;
+        let test_size = if_miri!(100, 1000);
         let mut rng = rand::thread_rng();
-        let mut v: Vec<i32> = (0..1000).collect();
-        let mut sl: SkipList<i32> = (0..1000).collect();
-        for i in (0..1000).rev() {
+        let mut v: Vec<i32> = (0..test_size).collect();
+        let mut sl: SkipList<i32> = (0..test_size).collect();
+        for i in (0..test_size as usize).rev() {
             let idx = rng.sample(Uniform::new_inclusive(0, i));
             assert_eq!(sl.remove(idx), v.remove(idx));
         }
     }
-
-    #[test]
-    fn append_test() {}
 
     #[test]
     fn basic_small() {
@@ -976,8 +975,8 @@ mod tests {
 
     #[test]
     fn basic_large() {
-        let size = 500;
-        let mut sl = SkipList::with_capacity(500);
+        let size = if_miri!(50, 500);
+        let mut sl = SkipList::with_capacity(size);
         assert!(sl.is_empty());
 
         for i in 0..size {
@@ -1019,7 +1018,7 @@ mod tests {
 
     #[test]
     fn iter() {
-        let size = 10000;
+        let size = if_miri!(100, 10000);
 
         let mut sl: SkipList<_> = (0..size).collect();
 
@@ -1042,7 +1041,7 @@ mod tests {
 
     #[test]
     fn iter_rev() {
-        let size = 10000;
+        let size = if_miri!(100, 10000);
 
         let mut sl: SkipList<_> = (0..size).collect();
 
@@ -1065,7 +1064,7 @@ mod tests {
 
     #[test]
     fn iter_mixed() {
-        let size = 10000;
+        let size = if_miri!(100, 10000);
 
         let mut sl: SkipList<_> = (0..size).collect();
 
@@ -1106,6 +1105,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(miri))]
     fn range_1000() {
         let size = 1000;
         let sl: SkipList<_> = (0..size).collect();
@@ -1146,6 +1146,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(miri))]
     fn range_mut_1000() {
         let size = 1000;
         let mut sl: SkipList<_> = (0..size).collect();
@@ -1186,7 +1187,7 @@ mod tests {
 
     #[test]
     fn range() {
-        let size = 200;
+        let size = if_miri!(20, 200);
         let sl: SkipList<_> = (0..size).collect();
 
         for i in 0..size {
@@ -1220,7 +1221,7 @@ mod tests {
 
     #[test]
     fn index_pop() {
-        let size = 1000;
+        let size = if_miri!(100, 1000);
         let mut sl: SkipList<_> = (0..size).collect();
         assert_eq!(sl.front(), Some(&0));
         assert_eq!(sl.front_mut(), Some(&mut 0));
@@ -1267,7 +1268,7 @@ mod tests {
 
     #[test]
     fn inplace_mut() {
-        let size = 1000;
+        let size = if_miri!(100, 1000);
         let mut sl: SkipList<_> = (0..size).collect();
 
         for i in 0..size {
@@ -1282,8 +1283,8 @@ mod tests {
 
     #[test]
     fn dedup() {
-        let size = 1000;
-        let repeats = 10;
+        let size = if_miri!(20, 1000);
+        let repeats = if_miri!(5, 10);
 
         let mut sl: SkipList<usize> = SkipList::new();
         for i in 0..size {
@@ -1309,8 +1310,8 @@ mod tests {
 
     #[test]
     fn retain() {
-        let repeats = 10;
-        let size = 100;
+        let repeats = if_miri!(5, 10);
+        let size = if_miri!(20, 100);
 
         let mut sl: SkipList<usize> = SkipList::new();
         for i in 0..size {

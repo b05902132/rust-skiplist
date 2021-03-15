@@ -420,6 +420,13 @@ impl<V> SkipNode<V> {
     /// Check the integrity of the list.
     ///
     pub fn check(&self) {
+        // Let Miri skip this function.
+        // This function detects integrity error, and can work without Miri.
+        // The main use of Miri is to detect undefined behaviors,
+        // and this function contains UB only if the invariance of SkipList is broken,
+        // which this function should already detect without Miri.
+        // And it takes a long time to run this function in Miri.
+        let _ = if_miri! {return, ()};
         assert!(self.is_head());
         assert!(self.item.is_none());
         let mut current_node = Some(self);

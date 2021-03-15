@@ -1170,7 +1170,7 @@ mod tests {
 
     #[test]
     fn basic_large() {
-        let size = 10_000;
+        let size = if_miri!(100, 10_000);
         let mut sl = OrderedSkipList::with_capacity(size);
         assert!(sl.is_empty());
 
@@ -1189,7 +1189,7 @@ mod tests {
 
     #[test]
     fn iter() {
-        let size = 10000;
+        let size = if_miri!(100, 10_000);
 
         let sl: OrderedSkipList<_> = (0..size).collect();
 
@@ -1210,7 +1210,7 @@ mod tests {
 
     #[test]
     fn iter_rev() {
-        let size = 10000;
+        let size = if_miri!(100, 10_000);
 
         let sl: OrderedSkipList<_> = (0..size).collect();
 
@@ -1231,7 +1231,7 @@ mod tests {
 
     #[test]
     fn iter_mixed() {
-        let size = 10000;
+        let size = if_miri!(100, 10_000);
 
         let sl: OrderedSkipList<_> = (0..size).collect();
 
@@ -1382,6 +1382,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(miri))]
     fn range_1000() {
         let size = 1000;
         let sl: OrderedSkipList<_> = (0..size).collect();
@@ -1423,7 +1424,7 @@ mod tests {
 
     #[test]
     fn range() {
-        let size = 200;
+        let size = if_miri!(20, 200);
         let sl: OrderedSkipList<_> = (0..size).collect();
 
         for i in 0..size {
@@ -1444,7 +1445,7 @@ mod tests {
 
     #[test]
     fn index_pop() {
-        let size = 1000;
+        let size = if_miri!(100, 1000);
         let sl: OrderedSkipList<_> = (0..size).collect();
         assert_eq!(sl.front(), Some(&0));
         assert_eq!(sl.back(), Some(&(size - 1)));
@@ -1520,8 +1521,8 @@ mod tests {
 
     #[test]
     fn dedup() {
-        let size = 1000;
-        let repeats = 10;
+        let size = if_miri!(20, 1000);
+        let repeats = if_miri!(5, 10);
 
         let mut sl: OrderedSkipList<usize> = OrderedSkipList::new();
         for _ in 0..repeats {
@@ -1545,8 +1546,8 @@ mod tests {
 
     #[test]
     fn retain() {
-        let repeats = 10;
-        let size = 1000;
+        let repeats = if_miri!(5, 10);
+        let size = if_miri!(20, 100);
         let mut sl: OrderedSkipList<usize> = OrderedSkipList::new();
         for _ in 0..repeats {
             sl.extend(0..size);
@@ -1597,7 +1598,7 @@ mod tests {
 
     #[test]
     fn pop() {
-        let size = 1000;
+        let size = if_miri!(50, 1000);
         let mut sl: OrderedSkipList<_> = (0..size).collect();
         for i in 0..size / 2 {
             assert_eq!(sl.pop_front(), Some(i));

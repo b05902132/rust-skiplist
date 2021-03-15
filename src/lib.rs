@@ -45,6 +45,10 @@
 // 1 being the one above level 0, etc.
 
 extern crate rand;
+
+#[macro_use]
+mod macros;
+
 pub mod level_generator;
 pub mod ordered_skiplist;
 pub mod skiplist;

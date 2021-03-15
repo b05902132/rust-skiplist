@@ -1186,7 +1186,7 @@ mod tests {
 
     #[test]
     fn basic_large() {
-        let size = 10_000;
+        let size = if_miri!(50, 10_000);
         let mut sm = SkipMap::with_capacity(size);
         assert!(sm.is_empty());
 
@@ -1205,7 +1205,7 @@ mod tests {
 
     #[test]
     fn insert_existing() {
-        let size = 100;
+        let size = if_miri!(10, 100);
         let mut sm = SkipMap::new();
 
         for i in 0..size {
@@ -1222,8 +1222,9 @@ mod tests {
 
     #[test]
     fn clear() {
-        let mut sm: SkipMap<_, _> = (0..100).map(|x| (x, x)).collect();
-        assert_eq!(sm.len(), 100);
+        let size = if_miri!(10, 100);
+        let mut sm: SkipMap<_, _> = (0..size).map(|x| (x, x)).collect();
+        assert_eq!(sm.len(), size);
         sm.clear();
         sm.check();
         assert!(sm.is_empty());
@@ -1231,7 +1232,7 @@ mod tests {
 
     #[test]
     fn iter() {
-        let size = 10000;
+        let size = if_miri!(100, 10000);
 
         let mut sm: SkipMap<_, _> = (0..size).map(|x| (x, x)).collect();
 
@@ -1253,7 +1254,7 @@ mod tests {
 
     #[test]
     fn iter_rev() {
-        let size = 1000;
+        let size = if_miri!(100, 10000);
 
         let mut sm: SkipMap<_, _> = (0..size).map(|x| (x, x)).collect();
 
@@ -1275,7 +1276,7 @@ mod tests {
 
     #[test]
     fn iter_mixed() {
-        let size = 1000;
+        let size = if_miri!(100, 10000);
         let mut sm: SkipMap<_, _> = (0..size).map(|x| (x, x)).collect();
 
         fn test<T>(size: usize, mut iter: T)
@@ -1301,7 +1302,7 @@ mod tests {
 
     #[test]
     fn iter_key_val() {
-        let size = 1000;
+        let size = if_miri!(20, 1000);
         let sm: SkipMap<_, _> = (0..size).map(|x| (x, 2 * x)).collect();
 
         let mut keys = sm.keys();
@@ -1339,6 +1340,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(miri))]
     fn range_1000() {
         let size = 1000;
         let sm: SkipMap<_, _> = (0..size).map(|x| (x, x)).collect();
@@ -1381,7 +1383,7 @@ mod tests {
 
     #[test]
     fn range() {
-        let size = 200;
+        let size = if_miri!(20, 200);
         let sm: SkipMap<_, _> = (0..size).map(|x| (x, x)).collect();
 
         for i in 0..size {
@@ -1406,7 +1408,7 @@ mod tests {
 
     #[test]
     fn index_pop() {
-        let size = 1000;
+        let size = if_miri!(20, 1000);
         let mut sm: SkipMap<_, _> = (0..size).map(|x| (x, 2 * x)).collect();
         assert_eq!(sm.front(), Some((&0, &0)));
         assert_eq!(sm.front_mut(), Some((&0, &mut 0)));
