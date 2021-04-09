@@ -1,3 +1,8 @@
+//! This module implements shared logic of various SkipLists.
+//! This also encapsulate `unsafe` pointer manipulations.
+//!
+//! Ideally all unsafe code is either inside this module,
+//! or are calls to unsafe functions inside this module.
 use std::cmp::Ordering;
 use std::{
     fmt, iter,
@@ -36,19 +41,19 @@ type Link<T> = Option<NonNull<SkipNode<T>>>;
 /// Lastly, each node contains a link to the immediately previous node in case
 /// one needs to parse the list backwards.
 #[derive(Clone, Debug)]
-pub struct SkipNode<V> {
+pub(crate) struct SkipNode<V> {
     // item should never be None, unless the node is a head.
-    pub item: Option<V>,
+    pub(crate) item: Option<V>,
     // how high the node reaches.
-    pub level: usize,
+    pub(crate) level: usize,
     // The immediately previous element.
-    pub prev: Link<V>,
+    pub(crate) prev: Link<V>,
     // Vector of links to the next node at the respective level.  This vector
     // *must* be of length `self.level + 1`.  links[0] stores a pointer to the
     // next node, which will have to be dropped.
-    pub links: Vec<Link<V>>,
+    pub(crate) links: Vec<Link<V>>,
     // The corresponding length of each link
-    pub links_len: Vec<usize>,
+    pub(crate) links_len: Vec<usize>,
 }
 
 // ///////////////////////////////////////////////
@@ -57,7 +62,7 @@ pub struct SkipNode<V> {
 
 impl<V> SkipNode<V> {
     /// Create a new head node.
-    pub fn head(total_levels: usize) -> Self {
+    pub(crate) fn head(total_levels: usize) -> Self {
         SkipNode {
             item: None,
             level: total_levels - 1,
@@ -69,7 +74,7 @@ impl<V> SkipNode<V> {
 
     /// Create a new SkipNode with the given item..
     /// All pointers default to null.
-    pub fn new(item: V, level: usize) -> Self {
+    pub(crate) fn new(item: V, level: usize) -> Self {
         SkipNode {
             item: Some(item),
             level,
@@ -80,21 +85,23 @@ impl<V> SkipNode<V> {
     }
 
     /// Consumes the node returning the item it contains.
-    pub fn into_inner(mut self) -> Option<V> {
+    pub(crate) fn into_inner(mut self) -> Option<V> {
         self.item.take()
     }
 
     /// Returns `true` is the node is a head-node.
-    pub fn is_head(&self) -> bool {
+    pub(crate) fn is_head(&self) -> bool {
         self.prev.is_none()
     }
 
-    pub fn next_ref(&self) -> Option<&Self> {
+    /// Return a reference to the next node, if it exists.
+    pub(crate) fn next_ref(&self) -> Option<&Self> {
         // SAFETY: all links either points to something or is null.
         unsafe { self.links[0].as_ref().map(|p| p.as_ref()) }
     }
 
-    pub fn next_mut(&mut self) -> Option<&mut Self> {
+    /// Return a mutable reference to the next node, if it exists.
+    pub(crate) fn next_mut(&mut self) -> Option<&mut Self> {
         // SAFETY: all links either points to something or is null.
         unsafe { self.links[0].as_mut().map(|p| p.as_mut()) }
     }
@@ -102,7 +109,7 @@ impl<V> SkipNode<V> {
     /// Takes the next node and set next_node.prev as null.
     ///
     /// SAFETY: please make sure no link at level 1 or greater becomes dangling.
-    pub unsafe fn take_tail(&mut self) -> Option<Box<Self>> {
+    pub(crate) unsafe fn take_tail(&mut self) -> Option<Box<Self>> {
         self.links[0].take().map(|p| {
             let mut next = Box::from_raw(p.as_ptr());
             next.prev = None;
@@ -115,7 +122,7 @@ impl<V> SkipNode<V> {
     /// Return the old node.
     ///
     /// SAFETY: please makes sure all links are fixed.
-    pub unsafe fn replace_tail(&mut self, mut new_next: Box<Self>) -> Option<Box<Self>> {
+    pub(crate) unsafe fn replace_tail(&mut self, mut new_next: Box<Self>) -> Option<Box<Self>> {
         let mut old_next = self.take_tail();
         if let Some(old_next) = old_next.as_mut() {
             old_next.prev = None;
@@ -140,7 +147,7 @@ impl<V> SkipNode<V> {
     /// `&V` is the value of the next node.
     /// If the `pred` returns `false`, then the next node is dropped.
     #[must_use]
-    pub fn retain<F>(&mut self, mut pred: F) -> usize
+    pub(crate) fn retain<F>(&mut self, mut pred: F) -> usize
     where
         F: FnMut(Option<&V>, &V) -> bool,
     {
@@ -212,7 +219,11 @@ impl<V> SkipNode<V> {
     /// If no node is given, then return distance between current node and the
     /// last possible node.
     /// If the node is not reachable on given level, return Err(()).
-    pub fn distance_at_level(&self, level: usize, target: Option<&Self>) -> Result<usize, ()> {
+    pub(crate) fn distance_at_level(
+        &self,
+        level: usize,
+        target: Option<&Self>,
+    ) -> Result<usize, ()> {
         let distance = match target {
             Some(target) => {
                 let (dest, distance) =
@@ -232,7 +243,7 @@ impl<V> SkipNode<V> {
 
     /// Move for max_distance units.
     /// Returns None if it's not possible.
-    pub fn advance(&self, max_distance: usize) -> Option<&Self> {
+    pub(crate) fn advance(&self, max_distance: usize) -> Option<&Self> {
         let level = self.level;
         let mut node = self;
         let mut distance_left = max_distance;
@@ -250,7 +261,7 @@ impl<V> SkipNode<V> {
 
     /// Move for max_distance units.
     /// Returns None if it's not possible.
-    pub fn advance_mut(&mut self, max_distance: usize) -> Option<&mut Self> {
+    pub(crate) fn advance_mut(&mut self, max_distance: usize) -> Option<&mut Self> {
         let level = self.level;
         let mut node = self;
         let mut distance_left = max_distance;
@@ -267,14 +278,14 @@ impl<V> SkipNode<V> {
     }
 
     /// Move to the last node reachable from this node.
-    pub fn last(&self) -> &Self {
+    pub(crate) fn last(&self) -> &Self {
         (0..=self.level).rev().fold(self, |node, level| {
             node.advance_while_at_level(level, |_, _| true).0
         })
     }
 
     /// Move to the last node reachable from this node.
-    pub fn last_mut(&mut self) -> &mut Self {
+    pub(crate) fn last_mut(&mut self) -> &mut Self {
         (0..=self.level).rev().fold(self, |node, level| {
             node.advance_while_at_level_mut(level, |_, _| true).0
         })
@@ -284,7 +295,7 @@ impl<V> SkipNode<V> {
     /// If it's impossible, then move as far as possible.
     ///
     /// Returns a reference to the new node and the distance travelled.
-    pub fn advance_at_level(&self, level: usize, mut max_distance: usize) -> (&Self, usize) {
+    pub(crate) fn advance_at_level(&self, level: usize, mut max_distance: usize) -> (&Self, usize) {
         self.advance_while_at_level(level, move |current_node, _| {
             let travelled = current_node.links_len[level];
             if travelled <= max_distance {
@@ -300,7 +311,7 @@ impl<V> SkipNode<V> {
     /// If it's impossible, then move as far as possible.
     ///
     /// Returns a mutable reference to the new node and the distance travelled.
-    pub fn advance_at_level_mut(
+    pub(crate) fn advance_at_level_mut(
         &mut self,
         level: usize,
         mut max_distance: usize,
@@ -318,7 +329,7 @@ impl<V> SkipNode<V> {
 
     /// Keep moving at the specified level as long as pred is true.
     /// pred takes reference to current node and next node.
-    pub fn advance_while_at_level(
+    pub(crate) fn advance_while_at_level(
         &self,
         level: usize,
         mut pred: impl FnMut(&Self, &Self) -> bool,
@@ -338,7 +349,7 @@ impl<V> SkipNode<V> {
 
     /// Keep moving at the specified level as long as pred is true.
     /// pred takes reference to current node and next node.
-    pub fn advance_while_at_level_mut(
+    pub(crate) fn advance_while_at_level_mut(
         &mut self,
         level: usize,
         mut pred: impl FnMut(&Self, &Self) -> bool,
@@ -380,7 +391,7 @@ impl<V> SkipNode<V> {
 
     /// Move to the next node at given level if the given predicate is true.
     /// The predicate takes reference to the current node and the next node.
-    pub fn next_if_at_level_mut(
+    pub(crate) fn next_if_at_level_mut(
         &mut self,
         level: usize,
         predicate: impl FnOnce(&Self, &Self) -> bool,
@@ -395,7 +406,7 @@ impl<V> SkipNode<V> {
 
     /// Move to the next node at given level if the given predicate is true.
     /// The predicate takes reference to the current node and the next node.
-    pub fn next_if_at_level(
+    pub(crate) fn next_if_at_level(
         &self,
         level: usize,
         predicate: impl FnOnce(&Self, &Self) -> bool,
@@ -414,7 +425,7 @@ impl<V> SkipNode<V> {
     ///
     /// Return the reference to the new node if successful.
     /// Give back the input node if not succssful.
-    pub fn insert_at(
+    pub(crate) fn insert_at(
         &mut self,
         new_node: Box<Self>,
         distance_to_parent: usize,
@@ -433,7 +444,7 @@ impl<V> SkipNode<V> {
     /// Requries that there's nothing before the node and the new node can't be at a higher level.
     ///
     /// If that node exists, remove that node and retrun it.
-    pub fn remove_at(&mut self, distance_to_parent: usize) -> Option<Box<Self>> {
+    pub(crate) fn remove_at(&mut self, distance_to_parent: usize) -> Option<Box<Self>> {
         assert!(self.prev.is_none(), "Only the head may remove nodes!");
         let remover = IndexRemover::new(distance_to_parent);
         remover.act(self).ok()
@@ -441,7 +452,7 @@ impl<V> SkipNode<V> {
 
     /// Check the integrity of the list.
     ///
-    pub fn check(&self) {
+    pub(crate) fn check(&self) {
         assert!(self.is_head());
         assert!(self.item.is_none());
         let mut current_node = Some(self);
@@ -532,7 +543,7 @@ where
 /// and call `act()` on the given list.
 ///
 /// For examples, see one of the types that implements this trait, such as [IndexInserter] or [IndexRemover].
-pub trait SkipListAction<'a, T>: Sized {
+pub(crate) trait SkipListAction<'a, T>: Sized {
     /// Return type when this action succeeds.
     type Ok;
     /// Return type when this action fails.
@@ -620,7 +631,10 @@ impl<T> SkipNode<T> {
     /// Insert the new node immediatly after this node.
     ///
     /// SAFETY: This doesn't fix links at level 1 or higher.
-    pub unsafe fn insert_next(&mut self, mut new_node: Box<SkipNode<T>>) -> &mut SkipNode<T> {
+    pub(crate) unsafe fn insert_next(
+        &mut self,
+        mut new_node: Box<SkipNode<T>>,
+    ) -> &mut SkipNode<T> {
         if let Some(tail) = self.take_tail() {
             new_node.replace_tail(tail);
         }
@@ -631,7 +645,7 @@ impl<T> SkipNode<T> {
     /// Take the node immediatly after this node.
     ///
     /// SAFETY: This doesn't fix links at level 1 or higher.
-    pub unsafe fn take_next(&mut self) -> Option<Box<SkipNode<T>>> {
+    pub(crate) unsafe fn take_next(&mut self) -> Option<Box<SkipNode<T>>> {
         let mut ret = self.take_tail()?;
         if let Some(new_tail) = ret.take_tail() {
             self.replace_tail(new_tail);
@@ -768,10 +782,11 @@ impl<'a, V> SkipListAction<'a, V> for IndexRemover {
 }
 
 /// Fixes links at `level` after insertion.
+/// Shared by ListActions that inserts a node into a list.
 ///
 /// Put the new_node after level_head if applicable, and adjust link_len.
 /// `distance_to_parent` is the distance from `level_head` to the parent of `new_node`.
-pub fn insertion_fixup<T>(
+pub(crate) fn insertion_fixup<T>(
     level: usize,
     level_head: &mut SkipNode<T>,
     distance_to_parent: usize,
@@ -793,7 +808,13 @@ pub fn insertion_fixup<T>(
 }
 
 /// Fix links at the given level after removal.
-pub fn removal_fixup<T>(
+/// Shared by ListActions that removes a node from a list.
+///
+/// Fix links that are broken due to removal of `removed_node`.
+///
+/// Assumes `level_head.links[level]` points to `removed_node`
+/// if `removed_node` used to exist at `level` and `level` is not 0.
+pub(crate) fn removal_fixup<T>(
     level: usize,
     level_head: &mut SkipNode<T>,
     removed_node: &mut Box<SkipNode<T>>,
@@ -853,7 +874,7 @@ impl<V> SkipNode<V> {
     /// Given a list head, a comparison function and a target,
     /// return a reference to the last node whose item compares less than the target,
     /// and the distance to that node.
-    pub fn find_last_le_with<F, T: ?Sized>(&self, cmp: F, target: &T) -> (&Self, usize)
+    pub(crate) fn find_last_le_with<F, T: ?Sized>(&self, cmp: F, target: &T) -> (&Self, usize)
     where
         F: Fn(&V, &T) -> Ordering,
     {
@@ -863,7 +884,11 @@ impl<V> SkipNode<V> {
     /// Given a list head, a comparison function and a target,
     /// return a mutable reference to the last node whose item compares less than the target.
     /// and the distance to that node.
-    pub fn find_last_le_with_mut<F, T: ?Sized>(&mut self, cmp: F, target: &T) -> (&mut Self, usize)
+    pub(crate) fn find_last_le_with_mut<F, T: ?Sized>(
+        &mut self,
+        cmp: F,
+        target: &T,
+    ) -> (&mut Self, usize)
     where
         F: Fn(&V, &T) -> Ordering,
     {
@@ -873,7 +898,7 @@ impl<V> SkipNode<V> {
     /// Given a list head, a comparison function and a target,
     /// return a reference to the last node whose item compares less than or equal to the target.
     /// and the distance to that node.
-    pub fn find_last_lt_with<F, T: ?Sized>(&self, cmp: F, target: &T) -> (&Self, usize)
+    pub(crate) fn find_last_lt_with<F, T: ?Sized>(&self, cmp: F, target: &T) -> (&Self, usize)
     where
         F: Fn(&V, &T) -> Ordering,
     {
@@ -885,7 +910,11 @@ impl<V> SkipNode<V> {
     /// return a mutable refeerence to the last node whose item compares less than or equal to the target.
     /// and the distance to that node.
     #[allow(dead_code)]
-    pub fn find_last_lt_with_mut<F, T: ?Sized>(&mut self, cmp: F, target: &T) -> (&mut Self, usize)
+    pub(crate) fn find_last_lt_with_mut<F, T: ?Sized>(
+        &mut self,
+        cmp: F,
+        target: &T,
+    ) -> (&mut Self, usize)
     where
         F: Fn(&V, &T) -> Ordering,
     {
