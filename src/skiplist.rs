@@ -456,7 +456,7 @@ impl<T> SkipList<T> {
     /// }
     /// ```
     pub fn iter(&self) -> Iter<T> {
-        unsafe { Iter::from_head(&self.head, self.len()) }
+        Iter::from_head(&self.head, self.len())
     }
 
     /// Creates an mutable iterator over the entries of the skiplist.
@@ -474,7 +474,7 @@ impl<T> SkipList<T> {
     /// ```
     pub fn iter_mut(&mut self) -> IterMut<T> {
         let len = self.len();
-        unsafe { IterMut::from_head(&mut self.head, len) }
+        IterMut::from_head(&mut self.head, len)
     }
 
     /// Constructs a double-ended iterator over a sub-range of elements in the
@@ -626,26 +626,16 @@ impl<T> SkipList<T> {
     /// Makes an iterator between [begin, end]
     fn iter_range_mut(&mut self, first_idx: usize, last_idx: usize) -> IterMut<T> {
         if first_idx > last_idx {
-            return IterMut {
-                first: None,
-                last: None,
-                size: 0,
-            };
+            return IterMut::empty();
         }
         let last = self.get_index_mut(last_idx).and_then(|p| NonNull::new(p));
-        let first = self.get_index_mut(first_idx);
+        let first = self.get_index_mut(first_idx).and_then(|p| NonNull::new(p));
+
         if first.is_some() && last.is_some() {
-            IterMut {
-                first,
-                last,
-                size: last_idx - first_idx + 1,
-            }
+            // SAFETY: Both `first` and `last` points to valid nodes.
+            unsafe { IterMut::new(first, last, last_idx - first_idx + 1) }
         } else {
-            IterMut {
-                first: None,
-                last: None,
-                size: 0,
-            }
+            IterMut::empty()
         }
     }
 

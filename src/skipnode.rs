@@ -6,6 +6,7 @@
 use std::cmp::Ordering;
 use std::{
     fmt, iter,
+    marker::PhantomData,
     ptr::{self, NonNull},
 };
 
@@ -970,8 +971,7 @@ pub struct Iter<'a, T> {
     pub(crate) size: usize,
 }
 impl<'a, T> Iter<'a, T> {
-    /// SAFETY: There must be `len` nodes after head.
-    pub(crate) unsafe fn from_head(head: &'a SkipNode<T>, len: usize) -> Self {
+    pub(crate) fn from_head(head: &'a SkipNode<T>, len: usize) -> Self {
         if len == 0 {
             Iter {
                 first: None,
@@ -1018,7 +1018,7 @@ impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
             self.first = None;
             self.last = None;
         } else {
-            // SAFETY: The iterator is not empty yet.
+            // SAFETY: The invariant of SkipNode.
             unsafe {
                 self.last = last_node.prev.as_ref().map(|p| p.as_ref());
             }
@@ -1030,28 +1030,64 @@ impl<'a, T> DoubleEndedIterator for Iter<'a, T> {
 
 /// A mutable iterator for [SkipList](super::SkipList) and [OrderedSkipList](super::OrderedSkipList).
 pub struct IterMut<'a, T> {
-    pub(crate) first: Option<&'a mut SkipNode<T>>,
+    // This uses pointers instead of mutable references,
+    // otherwise the iteration has to needlessly check for aliase to prevent undefined behaviors,
+    // dragging the performance down.
+    pub(crate) first: Option<NonNull<SkipNode<T>>>,
     pub(crate) last: Option<NonNull<SkipNode<T>>>,
     pub(crate) size: usize,
+    _phantom: PhantomData<&'a mut SkipNode<T>>,
 }
 
 impl<'a, T> IterMut<'a, T> {
-    /// SAFETY: There must be `len` nodes after head.
-    pub(crate) unsafe fn from_head(head: &'a mut SkipNode<T>, len: usize) -> Self {
-        if len == 0 {
+    /// # SAFETY
+    /// Since both `next()` and `next_back()` null check,
+    /// all operations of resulting iterator are safe as long as `head` is a valid SkipNode.
+    /// (It's considered safe (but buggy) to give wrong size_hint in Rust.)
+    pub(crate) fn from_head(head: &'a mut SkipNode<T>, len: usize) -> Self {
+        if len == 0 || head.next_mut().is_none() {
             IterMut {
                 first: None,
                 last: None,
                 size: 0,
+                _phantom: PhantomData,
             }
         } else {
-            let last = NonNull::new(head.last_mut());
-            let first = head.next_mut();
+            let first = head.next_mut().unwrap();
+            let last = Some(first.last_mut().into());
+            let first = Some(first.into());
             IterMut {
                 first,
                 last,
                 size: len,
+                _phantom: PhantomData,
             }
+        }
+    }
+
+    pub(crate) fn empty() -> Self {
+        Self {
+            first: None,
+            last: None,
+            size: 0,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Create a iterator from a pair of pointers.
+    ///
+    /// # SAFETY
+    /// The inputs must both point to valid `SkipNode`, or are both `None`.
+    pub(crate) unsafe fn new(
+        first: Option<NonNull<SkipNode<T>>>,
+        last: Option<NonNull<SkipNode<T>>>,
+        size: usize,
+    ) -> Self {
+        Self {
+            first,
+            last,
+            size,
+            _phantom: PhantomData,
         }
     }
 }
@@ -1060,23 +1096,16 @@ impl<'a, T> Iterator for IterMut<'a, T> {
     type Item = &'a mut T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let current_node = self.first.take()?;
-        if ptr::eq(current_node, self.last.unwrap().as_ptr()) {
+        // SAFETY: self.first is null checked.
+        let popped_node = unsafe { &mut *self.first?.as_ptr() };
+        if self.first == self.last {
             self.first = None;
             self.last = None;
         } else {
-            // calling current_node.next_mut() borrows it, transforming the reference to a pointer
-            // unborrows that.
-            let p = current_node.next_mut().unwrap() as *mut SkipNode<T>;
-            // SAFETY: p.as_mut() is safe because it points to a valid object.
-            // There's no aliasing issue since nobody else holds a reference to current_node
-            // until this function returns, and the returned reference does not points to a node.
-            unsafe {
-                self.first = p.as_mut();
-            }
+            self.first = popped_node.links[0];
         }
         self.size -= 1;
-        current_node.item.as_mut()
+        popped_node.item.as_mut()
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -1086,34 +1115,16 @@ impl<'a, T> Iterator for IterMut<'a, T> {
 
 impl<'a, T> DoubleEndedIterator for IterMut<'a, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        if self.last.is_none() {
-            return None;
-        }
-        assert!(self.last.is_some());
-        // There can be at most one mutable reference to the first node.
-        // We need to take it from self.first before doing anything,
-        // including simple comparison.
-        let first = self.first.take().unwrap();
-        let popped = if ptr::eq(first, self.last.unwrap().as_ptr()) {
+        // SAFETY: self.last is null checked.
+        let popped_node = unsafe { &mut *self.last?.as_ptr() };
+        if self.last == self.first {
+            self.first = None;
             self.last = None;
-            first
         } else {
-            // SAFETY: self.last isn't null and doesn't alias first
-            let new_last = unsafe { self.last.unwrap().as_mut().prev };
-            if ptr::eq(first, new_last.unwrap().as_ptr()) {
-                self.last = new_last;
-                let popped_p = first.next_mut().unwrap() as *mut SkipNode<T>;
-                self.first.replace(first);
-                unsafe { &mut (*popped_p) }
-            } else {
-                self.first.replace(first);
-                let last = self.last;
-                self.last = new_last;
-                unsafe { last.unwrap().as_ptr().as_mut().unwrap() }
-            }
-        };
+            self.last = popped_node.prev;
+        }
         self.size -= 1;
-        popped.item.as_mut()
+        popped_node.item.as_mut()
     }
 }
 
@@ -1377,10 +1388,16 @@ mod test {
     fn miri_test_iter_mut() {
         fn test_iter_mut(size: usize) {
             let mut list = new_list_for_test(size);
-            let mut first = list.next_mut();
-            let last = first.as_mut().unwrap().last_mut();
+            let mut first = list.next_mut().unwrap();
+            let last = first.last_mut();
             let last = NonNull::new(last);
-            let mut iter = IterMut { first, last, size };
+            let first = NonNull::new(first);
+            let mut iter = IterMut {
+                first,
+                last,
+                size,
+                _phantom: PhantomData,
+            };
             for _ in 0..(size + 1) / 2 {
                 let _ = iter.next();
                 let _ = iter.next_back();

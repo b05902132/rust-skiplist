@@ -601,7 +601,7 @@ impl<T> OrderedSkipList<T> {
     /// ```
     pub fn iter(&self) -> Iter<T> {
         let len = self.len();
-        unsafe { Iter::from_head(&self.head, len) }
+        Iter::from_head(&self.head, len)
     }
 
     /// Constructs a double-ended iterator over a sub-range of elements in the
